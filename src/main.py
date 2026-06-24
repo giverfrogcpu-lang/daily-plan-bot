@@ -5,7 +5,7 @@ import pytz
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
-import anthropic
+import google.generativeai as genai
 import requests
 
 SCOPES = [
@@ -107,14 +107,11 @@ def generate_schedule(events, tasks):
 LINEに通知するので、シンプルで見やすい箇条書きにしてください。
 今日のスケジュールに入らないタスクは「今日は見送り」として末尾に記載してください。"""
 
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1500,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    response = model.generate_content(prompt)
 
-    return message.content[0].text
+    return response.text
 
 
 def send_line_message(text):
