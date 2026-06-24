@@ -1,0 +1,31 @@
+name: 毎朝のスケジュール通知
+
+on:
+  schedule:
+    # 毎朝7:00 JST = 22:00 UTC（前日）
+    - cron: "0 22 * * *"
+  workflow_dispatch: # 手動実行もできるようにする
+
+jobs:
+  daily-plan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python をセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 依存関係をインストール
+        run: pip install -r requirements.txt
+
+      - name: スケジュール案を生成してLINEに送信
+        env:
+          GOOGLE_TOKEN_JSON: ${{ secrets.GOOGLE_TOKEN_JSON }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+        run: python src/main.py
