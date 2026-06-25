@@ -77,35 +77,58 @@ def get_tasks(tasks_service):
     return all_tasks
 
 
+def format_time(dt_str):
+    try:
+        dt = datetime.fromisoformat(dt_str).astimezone(JST)
+        return dt.strftime("%H:%M")
+    except Exception:
+        return dt_str
+
+
 def generate_schedule(events, tasks):
     now = datetime.now(JST)
     weekdays = ["月", "火", "水", "木", "金", "土", "日"]
-    today_str = f"{now.strftime('%Y年%m月%d日')}（{weekdays[now.weekday()]}）"
+    today_str = f"{now.strftime('%m/%d')}（{weekdays[now.weekday()]}）"
 
     if events:
         events_text = "\n".join(
-            f"- {e['start']} 〜 {e['end']}：{e['title']}" for e in events
+            f"- {format_time(e['start'])}〜{format_time(e['end'])} {e['title']}"
+            for e in events
         )
     else:
-        events_text = "今日の予定はありません"
+        events_text = "なし"
 
     if tasks:
-        tasks_text = "\n".join(f"- {t['title']}（期限：{t['due']}）" for t in tasks)
+        tasks_text = "\n".join(f"- {t['title']}（{t['due']}）" for t in tasks)
     else:
-        tasks_text = "未完了タスクはありません"
+        tasks_text = "なし"
 
     prompt = f"""今日は{today_str}です。
 
-【Googleカレンダー（今日の予定）】
+【今日の予定】
 {events_text}
 
-【Googleタスク（未完了）】
+【未完了タスク】
 {tasks_text}
 
-上記をもとに今日の1日のスケジュール案を作成してください。
-優先順位：締切が近いもの → クイックタスク → 制作系 → 事務系
-LINEに通知するので、シンプルで見やすい箇条書きにしてください。
-今日のスケジュールに入らないタスクは「今日は見送り」として末尾に記載してください。"""
+以下の形式でLINEに送る朝のスケジュール通知を作ってください。
+
+形式（必ずこの通りに）:
+🌅 {today_str} おはようございます！
+
+📅 今日の予定
+（時間順に箇条書き、例: ・10:00〜11:00 MTG）
+
+✅ 今日やること（優先順）
+（締切が近い順に最大5件、例: ・〇〇の作業（今日締切））
+
+📌 今週中
+（今週締切のタスク最大3件）
+
+⬜ 今日は見送り
+（入らなかったタスクをまとめて1行で）
+
+絵文字と箇条書きで見やすく。日本語のみ。余計な説明は不要。"""
 
     client = Groq(api_key=os.environ["GROQ_API_KEY"])
     response = client.chat.completions.create(
