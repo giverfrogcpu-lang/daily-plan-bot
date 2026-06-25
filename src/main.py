@@ -7,10 +7,13 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from groq import Groq
 import requests
+import gspread
 
 SCOPES = [
     "https://www.googleapis.com/auth/calendar.readonly",
     "https://www.googleapis.com/auth/tasks.readonly",
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive.readonly",
 ]
 
 JST = pytz.timezone("Asia/Tokyo")
@@ -85,7 +88,31 @@ def format_time(dt_str):
         return dt_str
 
 
-def generate_schedule(events, tasks):
+SPREADSHEET_ID = "1YSxAEyP0SmE6V_NlZDShtAb0XyboA_aGbs4LS6v8g_M"
+
+
+def get_client_progress(creds):
+    gc = gspread.authorize(creds)
+    sh = gc.open_by_key(SPREADSHEET_ID)
+    ws = sh.worksheets()[0]
+    rows = ws.get_all_values()
+
+    clients = []
+    for row in rows[1:]:
+        if not row[0] or not row[1]:
+            continue
+        clients.append({
+            "name": row[1],
+            "status": row[3],
+            "last_contact": row[4],
+            "next_mtg": row[5],
+            "next_action": row[6],
+            "issues": row[7],
+        })
+    return clients
+
+
+def generate_schedule(events, tasks, clients):
     now = datetime.now(JST)
     weekdays = ["月", "火", "水", "木", "金", "土", "日"]
     today_str = f"{now.strftime('%m/%d')}（{weekdays[now.weekday()]}）"
@@ -103,6 +130,14 @@ def generate_schedule(events, tasks):
     else:
         tasks_text = "なし"
 
+    if clients:
+        clients_text = "\n".join(
+            f"・{c['name']} {c['status']}\n  次回MTG: {c['next_mtg']}\n  次アクション: {c['next_action']}\n  課題: {c['issues']}"
+            for c in clients
+        )
+    else:
+        clients_text = "なし"
+
     prompt = f"""今日は{today_str}です。
 
 【今日の予定】
@@ -110,6 +145,9 @@ def generate_schedule(events, tasks):
 
 【未完了タスク】
 {tasks_text}
+
+【クライアント進捗】
+{clients_text}
 
 以下の形式でLINEに送る朝のスケジュール通知を作ってください。
 
@@ -120,13 +158,16 @@ def generate_schedule(events, tasks):
 （時間順に箇条書き、例: ・10:00〜11:00 MTG）
 
 ✅ 今日やること（優先順）
-（締切が近い順に最大5件、例: ・〇〇の作業（今日締切））
+（締切が近い順に箇条書き、例: ・〇〇の作業（今日締切））
 
 📌 今週中
-（今週締切のタスク最大3件）
+（今週締切のタスク）
 
 ⬜ 今日は見送り
 （入らなかったタスクを全部箇条書き、例: ・〇〇）
+
+📊 クライアント進捗
+（各クライアントを1〜2行で。ステータス絵文字・次回MTG・最優先アクションを含める）
 
 絵文字と箇条書きで見やすく。日本語のみ。余計な説明は不要。"""
 
@@ -165,14 +206,15 @@ def main():
     calendar_service = build("calendar", "v3", credentials=creds)
     tasks_service = build("tasks", "v1", credentials=creds)
 
-    print("カレンダーとタスクを取得中...")
+    print("カレンダーとタスクとスプシを取得中...")
     events = get_today_events(calendar_service)
     tasks = get_tasks(tasks_service)
+    clients = get_client_progress(creds)
 
-    print(f"取得完了 - 予定:{len(events)}件 / タスク:{len(tasks)}件")
+    print(f"取得完了 - 予定:{len(events)}件 / タスク:{len(tasks)}件 / クライアント:{len(clients)}件")
 
     print("スケジュール案を生成中...")
-    schedule_text = generate_schedule(events, tasks)
+    schedule_text = generate_schedule(events, tasks, clients)
 
     print("LINEに送信中...")
     send_line_message(schedule_text)
