@@ -5,7 +5,7 @@ import pytz
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
-import google.generativeai as genai
+from groq import Groq
 import requests
 
 SCOPES = [
@@ -107,11 +107,14 @@ def generate_schedule(events, tasks):
 LINEに通知するので、シンプルで見やすい箇条書きにしてください。
 今日のスケジュールに入らないタスクは「今日は見送り」として末尾に記載してください。"""
 
-    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-    model = genai.GenerativeModel("gemini-2.0-flash")
-    response = model.generate_content(prompt)
+    client = Groq(api_key=os.environ["GROQ_API_KEY"])
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=1500,
+    )
 
-    return response.text
+    return response.choices[0].message.content
 
 
 def send_line_message(text):
