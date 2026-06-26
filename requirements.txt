@@ -6,3 +6,5 @@ groq>=0.28.0
 requests==2.32.3
 pytz==2024.1
 gspread==6.1.4
+flask==3.0.3
+gunicorn==22.0.0

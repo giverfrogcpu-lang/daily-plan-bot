@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: daily-plan-bot-webhook
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn src.webhook:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+      - key: LINE_CHANNEL_SECRET
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GOOGLE_TOKEN_JSON
+        sync: false
