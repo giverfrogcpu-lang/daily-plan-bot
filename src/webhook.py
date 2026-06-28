@@ -114,7 +114,7 @@ def analyze_message(text, reply_token, image_data=None):
     today = datetime.now(JST).strftime("%Y-%m-%d")
 
     if image_data:
-        model = "llama-3.2-11b-vision-instruct"
+        model = "meta-llama/llama-4-scout-17b-16e-instruct"
         messages = [
             {
                 "role": "user",
