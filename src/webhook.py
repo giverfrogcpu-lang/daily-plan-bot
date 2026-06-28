@@ -39,6 +39,50 @@ FIELD_NAMES = {
     "issues": "課題",
 }
 
+CLIENTS = [
+    {"name": "カラーズ", "row": 2},
+    {"name": "パンスール", "row": 3},
+    {"name": "兎屋", "row": 4},
+    {"name": "For", "row": 5},
+]
+
+TASK_PREFIXES = ("タスク:", "タスク：", "todo:", "todo：", "task:", "task：")
+LIST_KEYWORDS = ("一覧", "クライアント一覧", "状況", "ステータス", "リスト")
+
+
+def create_github_issue(title, body=""):
+    token = os.environ.get("GITHUB_TOKEN")
+    repo = os.environ.get("GITHUB_REPO")
+    if not token or not repo:
+        return None
+    resp = http_requests.post(
+        f"https://api.github.com/repos/{repo}/issues",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+        },
+        json={"title": title, "body": body, "labels": ["task"]},
+    )
+    return resp.json() if resp.status_code == 201 else None
+
+
+def read_all_clients():
+    creds = get_google_creds()
+    gc = gspread.authorize(creds)
+    ws = gc.open_by_key(SPREADSHEET_ID).worksheets()[0]
+    result = []
+    for c in CLIENTS:
+        row = ws.row_values(c["row"])
+        result.append({
+            "name": c["name"],
+            "status": row[3] if len(row) > 3 else "—",
+            "last_contact": row[4] if len(row) > 4 else "—",
+            "next_mtg": row[5] if len(row) > 5 else "—",
+            "next_action": row[6] if len(row) > 6 else "—",
+            "issues": row[7] if len(row) > 7 else "—",
+        })
+    return result
+
 
 def get_google_creds():
     token_data = os.environ["GOOGLE_TOKEN_JSON"]
@@ -198,7 +242,34 @@ def webhook():
         msg = event["message"]
 
         if msg["type"] == "text":
-            analyze_message(msg["text"], reply_token)
+            text = msg["text"].strip()
+            task_title = next(
+                (text[len(p):].strip() for p in TASK_PREFIXES if text.lower().startswith(p.lower())),
+                None,
+            )
+
+            if task_title:
+                issue = create_github_issue(task_title)
+                if issue:
+                    send_line_reply(
+                        reply_token,
+                        f"✅ タスクを登録しました！\n📌 #{issue['number']} {issue['title']}\n🔗 {issue['html_url']}",
+                    )
+                else:
+                    send_line_reply(reply_token, "⚠️ GitHub Issue の作成に失敗しました。\nGITHUB_TOKEN / GITHUB_REPO の設定を確認してください。")
+            elif any(k in text for k in LIST_KEYWORDS):
+                clients = read_all_clients()
+                lines = ["📊 クライアント状況一覧\n"]
+                for c in clients:
+                    lines.append(f"{c['status']} {c['name']}")
+                    if c["next_action"] and c["next_action"] != "—":
+                        lines.append(f"  → {c['next_action']}")
+                    if c["next_mtg"] and c["next_mtg"] != "—":
+                        lines.append(f"  📅 {c['next_mtg']}")
+                    lines.append("")
+                send_line_reply(reply_token, "\n".join(lines).strip())
+            else:
+                analyze_message(text, reply_token)
 
         elif msg["type"] == "image":
             message_id = msg["id"]
