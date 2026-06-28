@@ -88,12 +88,15 @@ def build_prompt(text, today, is_image=False):
 
 今日の日付: {today}
 
-{"画像（LINEのスクショ）から" if is_image else "以下のメッセージから"}クライアント情報を読み取り、更新すべき情報をJSONで返してください。
+{"画像（LINEのスクショ）から" if is_image else "以下のメッセージから"}スプレッドシートに記録すべき具体的な更新情報（MTG日程・ステータス変更・次回アクション・課題等）を読み取ってください。
 {"" if is_image else f"メッセージ: {text}"}
 
-スプシ更新に無関係（雑談・質問等）の場合は null を返してください。
+【重要ルール】
+- 質問・確認・雑談・感想など、スプシに書き込む具体的な情報がない場合は必ず null のみを返すこと
+- updatesの全フィールドがnullになる場合も null を返すこと
+- 推測や憶測で情報を補完しないこと
 
-JSON形式（必ずこの形式のみ返すこと）:
+JSON形式（更新情報がある場合のみ、必ずこの形式で返すこと）:
 {{
   "client": "クライアント名",
   "row": 行番号（2〜5の整数）,
@@ -143,7 +146,7 @@ def analyze_message(text, reply_token, image_data=None):
 
     # null返答の場合
     if result_text.lower().strip() == "null":
-        send_line_reply(reply_token, "📝 受け取りました。スプシ更新対象の情報ではなかったのでそのままにします。")
+        send_line_reply(reply_token, "このBOTはクライアント情報のスプシ更新専用です。\nMTG日程・ステータス・次回アクションなどの情報をお送りください。")
         return
 
     # JSONを抽出
@@ -159,7 +162,7 @@ def analyze_message(text, reply_token, image_data=None):
         return
 
     if not result or result.get("row") is None:
-        send_line_reply(reply_token, "📝 受け取りました。スプシ更新対象の情報ではなかったのでそのままにします。")
+        send_line_reply(reply_token, "このBOTはクライアント情報のスプシ更新専用です。\nMTG日程・ステータス・次回アクションなどの情報をお送りください。")
         return
 
     updated_fields = update_sheet(result["row"], result.get("updates", {}))
