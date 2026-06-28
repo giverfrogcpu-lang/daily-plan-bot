@@ -48,6 +48,23 @@ CLIENTS = [
 
 TASK_PREFIXES = ("タスク:", "タスク：", "todo:", "todo：", "task:", "task：")
 LIST_KEYWORDS = ("一覧", "クライアント一覧", "状況", "ステータス", "リスト")
+CLIENT_NAME_MAP = {"カラーズ": 0, "パンスール": 1, "兎屋": 2, "for": 3, "For": 3}
+
+
+def close_github_issue(number):
+    token = os.environ.get("GITHUB_TOKEN")
+    repo = os.environ.get("GITHUB_REPO")
+    if not token or not repo:
+        return False
+    resp = http_requests.patch(
+        f"https://api.github.com/repos/{repo}/issues/{number}",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+        },
+        json={"state": "closed"},
+    )
+    return resp.status_code == 200
 
 
 def create_github_issue(title, body=""):
@@ -243,11 +260,22 @@ def webhook():
 
         if msg["type"] == "text":
             text = msg["text"].strip()
+
+            # タスク完了 #N
+            close_match = re.match(r'^(タスク完了|完了|close)\s*#?(\d+)', text, re.IGNORECASE)
+            if close_match:
+                num = int(close_match.group(2))
+                if close_github_issue(num):
+                    send_line_reply(reply_token, f"✅ タスク #{num} を完了にしました！")
+                else:
+                    send_line_reply(reply_token, f"⚠️ タスク #{num} のクローズに失敗しました。")
+                continue
+
+            # タスク登録
             task_title = next(
                 (text[len(p):].strip() for p in TASK_PREFIXES if text.lower().startswith(p.lower())),
                 None,
             )
-
             if task_title:
                 issue = create_github_issue(task_title)
                 if issue:
@@ -257,6 +285,22 @@ def webhook():
                     )
                 else:
                     send_line_reply(reply_token, "⚠️ GitHub Issue の作成に失敗しました。\nGITHUB_TOKEN / GITHUB_REPO の設定を確認してください。")
+
+            # クライアント個別確認（例: 「カラーズ 状況」）
+            elif matched_client := next((name for name in CLIENT_NAME_MAP if name.lower() in text.lower()), None):
+                clients = read_all_clients()
+                c = clients[CLIENT_NAME_MAP[matched_client]]
+                lines = [
+                    f"📋 {c['name']} の状況\n",
+                    f"ステータス: {c['status']}",
+                    f"最終対話: {c['last_contact']}",
+                    f"次回MTG: {c['next_mtg']}",
+                    f"次回アクション: {c['next_action']}",
+                    f"課題: {c['issues']}",
+                ]
+                send_line_reply(reply_token, "\n".join(lines))
+
+            # クライアント一覧
             elif any(k in text for k in LIST_KEYWORDS):
                 clients = read_all_clients()
                 lines = ["📊 クライアント状況一覧\n"]
@@ -268,6 +312,8 @@ def webhook():
                         lines.append(f"  📅 {c['next_mtg']}")
                     lines.append("")
                 send_line_reply(reply_token, "\n".join(lines).strip())
+
+            # スプシ更新（既存）
             else:
                 analyze_message(text, reply_token)
 

@@ -91,6 +91,24 @@ def format_time(dt_str):
 SPREADSHEET_ID = "1YSxAEyP0SmE6V_NlZDShtAb0XyboA_aGbs4LS6v8g_M"
 
 
+def get_github_tasks():
+    token = os.environ.get("GITHUB_TOKEN")
+    repo = os.environ.get("GITHUB_REPO")
+    if not token or not repo:
+        return []
+    resp = requests.get(
+        f"https://api.github.com/repos/{repo}/issues",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+        },
+        params={"state": "open", "labels": "task", "per_page": 20},
+    )
+    if resp.status_code != 200:
+        return []
+    return [{"number": i["number"], "title": i["title"]} for i in resp.json()]
+
+
 def get_client_progress(creds):
     gc = gspread.authorize(creds)
     sh = gc.open_by_key(SPREADSHEET_ID)
@@ -112,7 +130,7 @@ def get_client_progress(creds):
     return clients
 
 
-def generate_schedule(events, tasks, clients):
+def generate_schedule(events, tasks, clients, github_tasks):
     now = datetime.now(JST)
     weekdays = ["月", "火", "水", "木", "金", "土", "日"]
     today_str = f"{now.strftime('%m/%d')}（{weekdays[now.weekday()]}）"
@@ -138,13 +156,21 @@ def generate_schedule(events, tasks, clients):
     else:
         clients_text = "なし"
 
+    if github_tasks:
+        github_text = "\n".join(f"- #{t['number']} {t['title']}" for t in github_tasks)
+    else:
+        github_text = "なし"
+
     prompt = f"""今日は{today_str}です。
 
 【今日の予定】
 {events_text}
 
-【未完了タスク】
+【未完了タスク（Googleタスク）】
 {tasks_text}
+
+【未完了タスク（LINEタスク）】
+{github_text}
 
 【クライアント進捗】
 {clients_text}
@@ -165,6 +191,9 @@ def generate_schedule(events, tasks, clients):
 
 ⬜ 今日は見送り
 （入らなかったタスクを全部箇条書き、例: ・〇〇）
+
+📱 LINEタスク（未完了）
+（LINEから登録したタスク一覧。例: ・#1 テスト）
 
 📊 クライアント進捗
 （各クライアントを1〜2行で。ステータス絵文字・次回MTG・最優先アクションを含める）
@@ -210,11 +239,12 @@ def main():
     events = get_today_events(calendar_service)
     tasks = get_tasks(tasks_service)
     clients = get_client_progress(creds)
+    github_tasks = get_github_tasks()
 
-    print(f"取得完了 - 予定:{len(events)}件 / タスク:{len(tasks)}件 / クライアント:{len(clients)}件")
+    print(f"取得完了 - 予定:{len(events)}件 / Googleタスク:{len(tasks)}件 / LINEタスク:{len(github_tasks)}件 / クライアント:{len(clients)}件")
 
     print("スケジュール案を生成中...")
-    schedule_text = generate_schedule(events, tasks, clients)
+    schedule_text = generate_schedule(events, tasks, clients, github_tasks)
 
     print("LINEに送信中...")
     send_line_message(schedule_text)
