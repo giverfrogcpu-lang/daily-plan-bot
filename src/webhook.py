@@ -47,7 +47,11 @@ CLIENTS = [
 ]
 
 TASK_PREFIXES = ("タスク:", "タスク：", "todo:", "todo：", "task:", "task：")
+AI_TASK_PREFIXES = ("AIタスク:", "AIタスク：", "aiタスク:", "aiタスク：")
+SNS_TASK_PREFIXES = ("SNSタスク:", "SNSタスク：", "snsタスク:", "snsタスク：")
 LIST_KEYWORDS = ("一覧", "クライアント一覧", "状況", "ステータス", "リスト")
+AI_LIST_KEYWORDS = ("AIタスク一覧", "AIタスク状況", "aiタスク一覧", "aiタスク状況")
+SNS_LIST_KEYWORDS = ("SNSタスク一覧", "SNSタスク状況", "snsタスク一覧", "snsタスク状況")
 CLIENT_NAME_MAP = {"カラーズ": 0, "パンスール": 1, "兎屋": 2, "for": 3, "For": 3}
 
 
@@ -67,20 +71,40 @@ def close_github_issue(number):
     return resp.status_code == 200
 
 
-def create_github_issue(title, body=""):
+def create_github_issue(title, body="", labels=None):
     token = os.environ.get("GITHUB_TOKEN")
     repo = os.environ.get("GITHUB_REPO")
     if not token or not repo:
         return None
+    if labels is None:
+        labels = ["task"]
     resp = http_requests.post(
         f"https://api.github.com/repos/{repo}/issues",
         headers={
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github.v3+json",
         },
-        json={"title": title, "body": body, "labels": ["task"]},
+        json={"title": title, "body": body, "labels": labels},
     )
     return resp.json() if resp.status_code == 201 else None
+
+
+def get_github_issues_by_label(label):
+    token = os.environ.get("GITHUB_TOKEN")
+    repo = os.environ.get("GITHUB_REPO")
+    if not token or not repo:
+        return []
+    resp = http_requests.get(
+        f"https://api.github.com/repos/{repo}/issues",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+        },
+        params={"state": "open", "labels": label, "per_page": 20},
+    )
+    if resp.status_code != 200:
+        return []
+    return [{"number": i["number"], "title": i["title"]} for i in resp.json()]
 
 
 def read_all_clients():
@@ -271,12 +295,37 @@ def webhook():
                     send_line_reply(reply_token, f"⚠️ タスク #{num} のクローズに失敗しました。")
                 continue
 
-            # タスク登録
+            # AIタスク登録
+            ai_task_title = next(
+                (text[len(p):].strip() for p in AI_TASK_PREFIXES if text.lower().startswith(p.lower())),
+                None,
+            )
+            # SNSタスク登録
+            sns_task_title = next(
+                (text[len(p):].strip() for p in SNS_TASK_PREFIXES if text.lower().startswith(p.lower())),
+                None,
+            )
+            # 汎用タスク登録
             task_title = next(
                 (text[len(p):].strip() for p in TASK_PREFIXES if text.lower().startswith(p.lower())),
                 None,
             )
-            if task_title:
+
+            if ai_task_title:
+                issue = create_github_issue(ai_task_title, labels=["task", "ai-project"])
+                if issue:
+                    send_line_reply(reply_token, f"✅ AIタスクを登録しました！\n📌 #{issue['number']} {issue['title']}\n🔗 {issue['html_url']}")
+                else:
+                    send_line_reply(reply_token, "⚠️ GitHub Issue の作成に失敗しました。")
+
+            elif sns_task_title:
+                issue = create_github_issue(sns_task_title, labels=["task", "sns-consul"])
+                if issue:
+                    send_line_reply(reply_token, f"✅ SNSタスクを登録しました！\n📌 #{issue['number']} {issue['title']}\n🔗 {issue['html_url']}")
+                else:
+                    send_line_reply(reply_token, "⚠️ GitHub Issue の作成に失敗しました。")
+
+            elif task_title:
                 issue = create_github_issue(task_title)
                 if issue:
                     send_line_reply(
@@ -285,6 +334,28 @@ def webhook():
                     )
                 else:
                     send_line_reply(reply_token, "⚠️ GitHub Issue の作成に失敗しました。\nGITHUB_TOKEN / GITHUB_REPO の設定を確認してください。")
+
+            # AIタスク一覧
+            elif any(k in text for k in AI_LIST_KEYWORDS):
+                issues = get_github_issues_by_label("ai-project")
+                if issues:
+                    lines = ["🤖 AIプロジェクト タスク一覧\n"]
+                    for i in issues:
+                        lines.append(f"・#{i['number']} {i['title']}")
+                else:
+                    lines = ["🤖 AIプロジェクトのタスクはありません"]
+                send_line_reply(reply_token, "\n".join(lines))
+
+            # SNSタスク一覧
+            elif any(k in text for k in SNS_LIST_KEYWORDS):
+                issues = get_github_issues_by_label("sns-consul")
+                if issues:
+                    lines = ["📱 SNSコンサル タスク一覧\n"]
+                    for i in issues:
+                        lines.append(f"・#{i['number']} {i['title']}")
+                else:
+                    lines = ["📱 SNSコンサルのタスクはありません"]
+                send_line_reply(reply_token, "\n".join(lines))
 
             # クライアント個別確認（例: 「カラーズ 状況」）
             elif matched_client := next((name for name in CLIENT_NAME_MAP if name.lower() in text.lower()), None):

@@ -91,7 +91,7 @@ def format_time(dt_str):
 SPREADSHEET_ID = "1YSxAEyP0SmE6V_NlZDShtAb0XyboA_aGbs4LS6v8g_M"
 
 
-def get_github_tasks():
+def get_github_tasks_by_label(label):
     token = os.environ.get("GITHUB_TOKEN")
     repo = os.environ.get("GITHUB_REPO")
     if not token or not repo:
@@ -102,7 +102,7 @@ def get_github_tasks():
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github.v3+json",
         },
-        params={"state": "open", "labels": "task", "per_page": 20},
+        params={"state": "open", "labels": label, "per_page": 20},
     )
     if resp.status_code != 200:
         return []
@@ -130,7 +130,7 @@ def get_client_progress(creds):
     return clients
 
 
-def generate_schedule(events, tasks, clients, github_tasks):
+def generate_schedule(events, tasks, clients, ai_tasks, sns_tasks):
     now = datetime.now(JST)
     weekdays = ["月", "火", "水", "木", "金", "土", "日"]
     today_str = f"{now.strftime('%m/%d')}（{weekdays[now.weekday()]}）"
@@ -156,10 +156,15 @@ def generate_schedule(events, tasks, clients, github_tasks):
     else:
         clients_text = "なし"
 
-    if github_tasks:
-        github_text = "\n".join(f"- #{t['number']} {t['title']}" for t in github_tasks)
+    if ai_tasks:
+        ai_text = "\n".join(f"- #{t['number']} {t['title']}" for t in ai_tasks)
     else:
-        github_text = "なし"
+        ai_text = "なし"
+
+    if sns_tasks:
+        sns_text = "\n".join(f"- #{t['number']} {t['title']}" for t in sns_tasks)
+    else:
+        sns_text = "なし"
 
     prompt = f"""今日は{today_str}です。
 
@@ -169,8 +174,11 @@ def generate_schedule(events, tasks, clients, github_tasks):
 【未完了タスク（Googleタスク）】
 {tasks_text}
 
-【未完了タスク（LINEタスク）】
-{github_text}
+【AIプロジェクト タスク（未完了）】
+{ai_text}
+
+【SNSコンサル タスク（未完了）】
+{sns_text}
 
 【クライアント進捗】
 {clients_text}
@@ -192,8 +200,11 @@ def generate_schedule(events, tasks, clients, github_tasks):
 ⬜ 今日は見送り
 （入らなかったタスクを全部箇条書き、例: ・〇〇）
 
-📱 LINEタスク（未完了）
-（LINEから登録したタスク一覧。例: ・#1 テスト）
+🤖 AIプロジェクト タスク
+（AIタスク一覧。例: ・#2 CEOエージェントループ実装）
+
+📱 SNSコンサル タスク
+（SNSタスク一覧。例: ・#3 カラーズ提案書作成）
 
 📊 クライアント進捗
 （各クライアントを1〜2行で。ステータス絵文字・次回MTG・最優先アクションを含める）
@@ -239,12 +250,13 @@ def main():
     events = get_today_events(calendar_service)
     tasks = get_tasks(tasks_service)
     clients = get_client_progress(creds)
-    github_tasks = get_github_tasks()
+    ai_tasks = get_github_tasks_by_label("ai-project")
+    sns_tasks = get_github_tasks_by_label("sns-consul")
 
-    print(f"取得完了 - 予定:{len(events)}件 / Googleタスク:{len(tasks)}件 / LINEタスク:{len(github_tasks)}件 / クライアント:{len(clients)}件")
+    print(f"取得完了 - 予定:{len(events)}件 / Googleタスク:{len(tasks)}件 / AIタスク:{len(ai_tasks)}件 / SNSタスク:{len(sns_tasks)}件 / クライアント:{len(clients)}件")
 
     print("スケジュール案を生成中...")
-    schedule_text = generate_schedule(events, tasks, clients, github_tasks)
+    schedule_text = generate_schedule(events, tasks, clients, ai_tasks, sns_tasks)
 
     print("LINEに送信中...")
     send_line_message(schedule_text)
